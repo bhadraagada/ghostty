@@ -1574,7 +1574,7 @@ pub const Page = struct {
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
         const grapheme_count = @divFloor(cap.grapheme_bytes, grapheme_chunk);
-        const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count));
+        const grapheme_map_layout = GraphemeMap.layout(@intCast(grapheme_count)) catch @panic("TODO");
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
 
@@ -1595,7 +1595,7 @@ pub const Page = struct {
             ) orelse break :count std.math.maxInt(u32);
             break :count std.math.ceilPowerOfTwoAssert(u32, mult);
         };
-        const hyperlink_map_layout = hyperlink.Map.layout(hyperlink_map_count);
+        const hyperlink_map_layout = hyperlink.Map.layout(hyperlink_map_count) catch @panic("TODO");
         const hyperlink_map_start = alignForward(usize, hyperlink_set_end, hyperlink.Map.base_align.toByteUnits());
         const hyperlink_map_end = hyperlink_map_start + hyperlink_map_layout.total_size;
 
