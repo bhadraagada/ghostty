@@ -5,7 +5,7 @@ const size = @import("size.zig");
 const getOffset = size.getOffset;
 const Offset = size.Offset;
 const OffsetBuf = size.OffsetBuf;
-const alignForward = std.mem.alignForward;
+const alignForwardChecked = size.alignForwardChecked;
 
 /// A relatively naive bitmap allocator that uses memory offsets against
 /// a fixed backing buffer so that the backing buffer can be easily moved
@@ -182,25 +182,37 @@ pub fn BitmapAllocator(comptime chunk_size: comptime_int) type {
         /// number of bytes, not chunks. The capacity will likely be
         /// rounded up to the nearest chunk size and bitmap size so
         /// everything is perfectly divisible.
-        pub fn layout(cap: usize) Layout {
+        ///
+        /// The overflow result means that the capacity is too large to
+        /// fit within the addressable memory space.
+        pub fn layout(cap: usize) error{Overflow}!Layout {
             // Align the cap forward to our chunk size so we always have
-            // a full chunk at the end.
-            const aligned_cap = alignForward(usize, cap, chunk_size);
+            // a full chunk at the end. Use checked math to return overflow.
+            const aligned_cap = try alignForwardChecked(usize, cap, chunk_size);
 
             // Calculate the number of bitmaps. We need 1 bitmap per 64 chunks.
             // We align the chunk count forward so our bitmaps are full so we
             // don't have to handle the case where we have a partial bitmap.
+            //
+            // Safety note: all of the divisions before are guaranteed to be
+            // valid because we're doing the alignments forward just prior.
             const chunk_count = @divExact(aligned_cap, chunk_size);
-            const aligned_chunk_count = alignForward(usize, chunk_count, 64);
+            const aligned_chunk_count = try alignForwardChecked(usize, chunk_count, 64);
             const bitmap_count = @divExact(aligned_chunk_count, 64);
 
+            // The math here isn't guaranteed to always not overflow,
+            // so we use checked math that fails even in unsafe builds.
             const bitmap_start = 0;
-            const bitmap_end = @sizeOf(u64) * bitmap_count;
-            const chunks_start = alignForward(usize, bitmap_end, @alignOf(u8));
-            const chunks_end = chunks_start + (aligned_cap * chunk_size);
+            const bitmap_end = try std.math.mul(usize, @sizeOf(u64), bitmap_count);
+            const chunks_start = try alignForwardChecked(usize, bitmap_end, @alignOf(u8));
+            const chunks_end = try std.math.add(
+                usize,
+                chunks_start,
+                try std.math.mul(usize, aligned_cap, chunk_size),
+            );
             const total_size = chunks_end;
 
-            return Layout{
+            return .{
                 .total_size = total_size,
                 .bitmap_count = bitmap_count,
                 .bitmap_start = bitmap_start,
@@ -424,7 +436,7 @@ test "BitmapAllocator layout" {
     const cap = 64 * 4;
 
     const testing = std.testing;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
 
     // We expect to use one bitmap since the cap is bytes.
     try testing.expectEqual(@as(usize, 1), layout.bitmap_count);
@@ -436,7 +448,7 @@ test "BitmapAllocator alloc sequentially" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -462,7 +474,7 @@ test "BitmapAllocator alloc non-byte" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -486,7 +498,7 @@ test "BitmapAllocator alloc non-byte multi-chunk" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -511,7 +523,7 @@ test "BitmapAllocator alloc large" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -528,7 +540,7 @@ test "BitmapAllocator alloc and free one bitmap" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -565,7 +577,7 @@ test "BitmapAllocator alloc and free half bitmap" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -602,7 +614,7 @@ test "BitmapAllocator alloc and free two half bitmaps" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -657,7 +669,7 @@ test "BitmapAllocator alloc and free 1.5 bitmaps" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -694,7 +706,7 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -749,7 +761,7 @@ test "BitmapAllocator alloc and free 1.5 bitmaps offset by 0.75" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -806,7 +818,7 @@ test "BitmapAllocator alloc and free three 0.75 bitmaps" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -884,7 +896,7 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps offset 0.75" {
 
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout = Alloc.layout(cap);
+    const layout = try Alloc.layout(cap);
     const buf = try alloc.alignedAlloc(u8, Alloc.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -954,4 +966,43 @@ test "BitmapAllocator alloc and free two 1.5 bitmaps offset 0.75" {
         &@as([4]u64, @splat(~@as(u64, 0))),
         bm.bitmap.ptr(buf)[0..4],
     );
+}
+
+test "BitmapAllocator layout overflow with u8" {
+    const Alloc = BitmapAllocator(1);
+    const testing = std.testing;
+
+    // Normal capacity should succeed.
+    const normal_layout = try Alloc.layout(1024);
+    try testing.expect(normal_layout.total_size > 0);
+
+    // Capacity near max usize should overflow (chunk_size=1 means aligned_cap * chunk_size overflows).
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize)));
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize) - 1));
+}
+
+test "BitmapAllocator layout overflow with u64" {
+    const Alloc = BitmapAllocator(8);
+    const testing = std.testing;
+
+    // Normal capacity should succeed.
+    const normal_layout = try Alloc.layout(512);
+    try testing.expect(normal_layout.total_size > 0);
+
+    // Capacity near max usize should overflow.
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize)));
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize) - 7));
+}
+
+test "BitmapAllocator layout overflow with large chunk size" {
+    const Alloc = BitmapAllocator(4096);
+    const testing = std.testing;
+
+    // Normal capacity should succeed.
+    const normal_layout = try Alloc.layout(4096 * 64);
+    try testing.expect(normal_layout.total_size > 0);
+
+    // Capacity near max usize should overflow due to aligned_cap * chunk_size multiplication.
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize)));
+    try testing.expectError(error.Overflow, Alloc.layout(std.math.maxInt(usize) - 4095));
 }

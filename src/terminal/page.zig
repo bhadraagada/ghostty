@@ -1552,7 +1552,7 @@ pub const Page = struct {
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
     pub inline fn layout(cap: Capacity) Layout {
-        // NOTE: The RefCountedSet layouts here crash if they fail currently.
+        // NOTE: The layouts here crash if they fail currently.
         // This is better than memory corruption and eventually crashing
         // that happened before this, and we'll change this to handle it
         // later.
@@ -1569,7 +1569,7 @@ pub const Page = struct {
         const styles_start = alignForward(usize, cells_end, StyleSet.base_align.toByteUnits());
         const styles_end = styles_start + styles_layout.total_size;
 
-        const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes);
+        const grapheme_alloc_layout = GraphemeAlloc.layout(cap.grapheme_bytes) catch @panic("TODO");
         const grapheme_alloc_start = alignForward(usize, styles_end, GraphemeAlloc.base_align.toByteUnits());
         const grapheme_alloc_end = grapheme_alloc_start + grapheme_alloc_layout.total_size;
 
@@ -1578,7 +1578,7 @@ pub const Page = struct {
         const grapheme_map_start = alignForward(usize, grapheme_alloc_end, GraphemeMap.base_align.toByteUnits());
         const grapheme_map_end = grapheme_map_start + grapheme_map_layout.total_size;
 
-        const string_layout = StringAlloc.layout(cap.string_bytes);
+        const string_layout = StringAlloc.layout(cap.string_bytes) catch @panic("TODO");
         const string_start = alignForward(usize, grapheme_map_end, StringAlloc.base_align.toByteUnits());
         const string_end = string_start + string_layout.total_size;
 
