@@ -202,3 +202,63 @@ test "getOffset structs" {
         offset.offset,
     );
 }
+
+/// Like std.mem.alignForward but returns error.Overflow on overflow instead of
+/// undefined behavior. The alignment must be a power of 2 and greater than 0.
+pub fn alignForwardChecked(
+    comptime T: type,
+    addr: T,
+    alignment: T,
+) error{Overflow}!T {
+    assert(alignment > 0 and std.math.isPowerOfTwo(alignment));
+    return std.mem.alignBackward(T, try std.math.add(T, addr, alignment - 1), alignment);
+}
+
+test "alignForwardChecked" {
+    const testing = std.testing;
+
+    // Normal cases should match std.mem.alignForward.
+    try testing.expectEqual(@as(usize, 16), try alignForwardChecked(usize, 10, 8));
+    try testing.expectEqual(@as(usize, 8), try alignForwardChecked(usize, 8, 8));
+    try testing.expectEqual(@as(usize, 64), try alignForwardChecked(usize, 33, 64));
+    try testing.expectEqual(@as(usize, 0), try alignForwardChecked(usize, 0, 8));
+    try testing.expectEqual(@as(usize, 4096), try alignForwardChecked(usize, 4095, 4096));
+    try testing.expectEqual(@as(usize, 4096), try alignForwardChecked(usize, 4096, 4096));
+    try testing.expectEqual(@as(usize, 8192), try alignForwardChecked(usize, 4097, 4096));
+
+    // Overflow cases should return error.Overflow.
+    try testing.expectError(error.Overflow, alignForwardChecked(usize, std.math.maxInt(usize), 8));
+    try testing.expectError(error.Overflow, alignForwardChecked(usize, std.math.maxInt(usize) - 1, 8));
+    try testing.expectError(error.Overflow, alignForwardChecked(usize, std.math.maxInt(usize) - 6, 8));
+}
+
+test "alignForwardChecked with different integer types" {
+    const testing = std.testing;
+
+    // Test with u32.
+    try testing.expectEqual(@as(u32, 16), try alignForwardChecked(u32, 10, 8));
+    try testing.expectError(error.Overflow, alignForwardChecked(u32, std.math.maxInt(u32), 8));
+
+    // Test with u16.
+    try testing.expectEqual(@as(u16, 64), try alignForwardChecked(u16, 33, 64));
+    try testing.expectError(error.Overflow, alignForwardChecked(u16, std.math.maxInt(u16), 64));
+
+    // Test with u8.
+    try testing.expectEqual(@as(u8, 16), try alignForwardChecked(u8, 10, 8));
+    try testing.expectError(error.Overflow, alignForwardChecked(u8, 250, 8));
+}
+
+test "alignForwardChecked matches std.mem.alignForward" {
+    const testing = std.testing;
+
+    const test_addrs = [_]usize{ 0, 1, 7, 8, 9, 15, 16, 17, 63, 64, 65, 100, 1000, 4095, 4096 };
+    const test_aligns = [_]usize{ 1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 4096 };
+
+    for (test_addrs) |addr| {
+        for (test_aligns) |alignment| {
+            const expected = std.mem.alignForward(usize, addr, alignment);
+            const actual = try alignForwardChecked(usize, addr, alignment);
+            try testing.expectEqual(expected, actual);
+        }
+    }
+}
