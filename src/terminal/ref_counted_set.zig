@@ -138,6 +138,11 @@ pub fn RefCountedSet(
             items_start: usize,
             total_size: usize,
 
+            /// The maximum capacity supported by the set is one more than
+            /// the total number of distinct IDs representable by the `Id` type,
+            /// since ID 0 is reserved and the backing array needs slots 0..maxInt(Id).
+            pub const max_cap: usize = @as(usize, @intCast(std.math.maxInt(Id))) + 1;
+
             /// Returns the memory layout for the given base offset and
             /// desired capacity. The layout can be used by the caller to
             /// determine how much memory to allocate, and the layout must
@@ -153,11 +158,12 @@ pub fn RefCountedSet(
             ///
             /// The returned layout `cap` property will be 1 more than the number
             /// of items that the set can actually store, since ID 0 is reserved.
-            pub fn init(cap: usize) Layout {
+            pub fn init(cap: usize) error{Overflow}!Layout {
                 // Experimentally, this load factor works quite well.
                 const load_factor = 0.8125;
 
-                assert(cap <= @as(usize, @intCast(std.math.maxInt(Id))) + 1);
+                // Reject layout requests that exceed max capacity.
+                if (cap > max_cap) return error.Overflow;
 
                 // Zero-cap set is valid, return special case
                 if (cap == 0) return .{

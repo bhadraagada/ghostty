@@ -903,7 +903,7 @@ test "Style VT formatting all palette colors with palette set" {
 test "Set basic usage" {
     const testing = std.testing;
     const alloc = testing.allocator;
-    const layout: Set.Layout = .init(16);
+    const layout: Set.Layout = try .init(16);
     const buf = try alloc.alignedAlloc(u8, Set.base_align, layout.total_size);
     defer alloc.free(buf);
 
@@ -957,7 +957,13 @@ test "Set basic usage" {
 
 test "Set capacities" {
     // We want to support at least this many styles without overflowing.
-    _ = Set.Layout.init(16384);
+    _ = try Set.Layout.init(16384);
+
+    // We should overflow after this.
+    try std.testing.expectError(
+        error.Overflow,
+        Set.Layout.init(std.math.maxInt(Id) + 2),
+    );
 }
 
 test "Style HTML formatting basic bold" {

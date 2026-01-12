@@ -1552,6 +1552,11 @@ pub const Page = struct {
     /// The memory layout for a page given a desired minimum cols
     /// and rows size.
     pub inline fn layout(cap: Capacity) Layout {
+        // NOTE: The RefCountedSet layouts here crash if they fail currently.
+        // This is better than memory corruption and eventually crashing
+        // that happened before this, and we'll change this to handle it
+        // later.
+
         const rows_count: usize = @intCast(cap.rows);
         const rows_start = 0;
         const rows_end: usize = rows_start + (rows_count * @sizeOf(Row));
@@ -1560,7 +1565,7 @@ pub const Page = struct {
         const cells_start = alignForward(usize, rows_end, @alignOf(Cell));
         const cells_end = cells_start + (cells_count * @sizeOf(Cell));
 
-        const styles_layout: StyleSet.Layout = .init(cap.styles);
+        const styles_layout = StyleSet.Layout.init(cap.styles) catch @panic("TODO");
         const styles_start = alignForward(usize, cells_end, StyleSet.base_align.toByteUnits());
         const styles_end = styles_start + styles_layout.total_size;
 
@@ -1578,7 +1583,7 @@ pub const Page = struct {
         const string_end = string_start + string_layout.total_size;
 
         const hyperlink_count = @divFloor(cap.hyperlink_bytes, @sizeOf(hyperlink.Set.Item));
-        const hyperlink_set_layout: hyperlink.Set.Layout = .init(@intCast(hyperlink_count));
+        const hyperlink_set_layout = hyperlink.Set.Layout.init(@intCast(hyperlink_count)) catch @panic("TODO");
         const hyperlink_set_start = alignForward(usize, string_end, hyperlink.Set.base_align.toByteUnits());
         const hyperlink_set_end = hyperlink_set_start + hyperlink_set_layout.total_size;
 
