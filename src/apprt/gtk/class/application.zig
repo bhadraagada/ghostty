@@ -1,4 +1,5 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../../../quirks.zig").inlineAssert;
 const Allocator = std.mem.Allocator;
 const adw = @import("adw");
@@ -1275,8 +1276,10 @@ pub const Application = extern struct {
         // Setup our style manager (light/dark mode)
         self.startupStyleManager();
 
-        // Setup some signal handlers
-        self.startupSignals();
+        // Setup some signal handlers (Unix only - signals like SIGUSR2 don't exist on Windows)
+        if (comptime builtin.os.tag != .windows) {
+            self.startupSignals();
+        }
 
         // Setup our action map
         self.startupActionMap();
@@ -1374,8 +1377,10 @@ pub const Application = extern struct {
         handleStyleManagerDark(style, undefined, self);
     }
 
-    /// Setup signal handlers
+    /// Setup signal handlers (Unix only - signals like SIGUSR2 don't exist on Windows)
     fn startupSignals(self: *Self) void {
+        if (comptime builtin.os.tag == .windows) return;
+
         const priv = self.private();
         assert(priv.signal_source == null);
         priv.signal_source = glib.unixSignalAdd(
@@ -1522,11 +1527,14 @@ pub const Application = extern struct {
             diag.unref(); // strong ref from get()
         }
         priv.config_errors_dialog.set(null);
-        if (priv.signal_source) |v| {
-            if (glib.Source.remove(v) == 0) {
-                log.warn("unable to remove signal source", .{});
+        // Signal source cleanup (Unix only)
+        if (comptime builtin.os.tag != .windows) {
+            if (priv.signal_source) |v| {
+                if (glib.Source.remove(v) == 0) {
+                    log.warn("unable to remove signal source", .{});
+                }
+                priv.signal_source = null;
             }
-            priv.signal_source = null;
         }
 
         gobject.Object.virtual_methods.dispose.call(
@@ -1546,8 +1554,12 @@ pub const Application = extern struct {
     //---------------------------------------------------------------
     // Signal Handlers
 
-    /// SIGUSR2 signal handler via g_unix_signal_add
+    /// SIGUSR2 signal handler via g_unix_signal_add (Unix only)
     fn handleSigusr2(ud: ?*anyopaque) callconv(.c) c_int {
+        if (comptime builtin.os.tag == .windows) {
+            return @intFromBool(glib.SOURCE_REMOVE);
+        }
+
         const self: *Self = @ptrCast(@alignCast(ud orelse
             return @intFromBool(glib.SOURCE_CONTINUE)));
 

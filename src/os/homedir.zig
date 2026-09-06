@@ -122,6 +122,7 @@ pub const ExpandError = error{
 pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
     return switch (builtin.os.tag) {
         .linux, .freebsd, .macos => try expandHomeUnix(path, buf),
+        .windows => try expandHomeWindows(path, buf),
         .ios => return path,
         else => @compileError("unimplemented"),
     };
@@ -129,6 +130,22 @@ pub fn expandHome(path: []const u8, buf: []u8) ExpandError![]const u8 {
 
 fn expandHomeUnix(path: []const u8, buf: []u8) ExpandError![]const u8 {
     if (!std.mem.startsWith(u8, path, "~/")) return path;
+    const home_dir: []const u8 = if (home(buf)) |home_|
+        home_ orelse return error.HomeDetectionFailed
+    else |_|
+        return error.HomeDetectionFailed;
+    const rest = path[1..]; // Skip the ~
+    const expanded_len = home_dir.len + rest.len;
+
+    if (expanded_len > buf.len) return Error.BufferTooSmall;
+    @memcpy(buf[home_dir.len..expanded_len], rest);
+
+    return buf[0..expanded_len];
+}
+
+fn expandHomeWindows(path: []const u8, buf: []u8) ExpandError![]const u8 {
+    // Check for ~/ or ~\ prefix
+    if (!(std.mem.startsWith(u8, path, "~/") or std.mem.startsWith(u8, path, "~\\"))) return path;
     const home_dir: []const u8 = if (home(buf)) |home_|
         home_ orelse return error.HomeDetectionFailed
     else |_|

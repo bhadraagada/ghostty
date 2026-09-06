@@ -1,6 +1,8 @@
 /// Contains all the logic for putting the Ghostty process and
 /// each individual surface into its own cgroup.
+/// This is Linux-specific functionality for systemd cgroup isolation.
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 const gio = @import("gio");
@@ -9,6 +11,9 @@ const glib = @import("glib");
 const internal_os = @import("../../os/main.zig");
 
 const log = std.log.scoped(.gtk_systemd_cgroup);
+
+// Cgroups are Linux-specific
+const is_linux = builtin.os.tag == .linux;
 
 pub const Options = struct {
     memory_high: ?u64 = null,
@@ -21,11 +26,18 @@ pub const Options = struct {
 ///
 /// Returns the path of the current cgroup for the app, which is
 /// allocated with the given allocator.
+///
+/// On non-Linux platforms, this returns an error since cgroups are not supported.
 pub fn init(
     alloc: Allocator,
     dbus: *gio.DBusConnection,
     opts: Options,
 ) ![]const u8 {
+    // Cgroups are only available on Linux
+    if (!is_linux) {
+        return error.UnsupportedPlatform;
+    }
+
     const pid = std.os.linux.getpid();
 
     // Get our initial cgroup. We need this so we can compare
@@ -120,8 +132,9 @@ fn enableControllers(alloc: Allocator, cgroup: []const u8) !void {
 /// move our process into it.
 fn createScope(
     dbus: *gio.DBusConnection,
-    pid_: std.os.linux.pid_t,
+    pid_: if (is_linux) std.os.linux.pid_t else i32,
 ) !void {
+    if (!is_linux) return error.UnsupportedPlatform;
     const pid: u32 = @intCast(pid_);
 
     // The unit name needs to be unique. We use the pid for this.

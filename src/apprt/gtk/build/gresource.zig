@@ -5,6 +5,7 @@
 //! Litmus test: `src/apprt/gtk` should exist relative to the pwd.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 
 /// Prefix/appid for the gresource file.
@@ -146,7 +147,11 @@ pub fn main() !void {
     }
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    // Use streaming mode on Windows because stdout can't be truncated
+    var stdout = if (builtin.os.tag == .windows)
+        std.fs.File.stdout().writerStreaming(&buf)
+    else
+        std.fs.File.stdout().writer(&buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\<?xml version="1.0" encoding="UTF-8"?>
@@ -253,17 +258,47 @@ fn genUi(
 
     for (files.items) |ui_file| {
         for (blueprints) |bp| {
-            const expected = try std.fmt.allocPrint(
+            // On Windows, paths may use backslash separators
+            const expected_fwd = try std.fmt.allocPrint(
                 alloc,
                 "/{d}.{d}/{s}.ui",
                 .{ bp.major, bp.minor, bp.name },
             );
-            defer alloc.free(expected);
-            if (!std.mem.endsWith(u8, ui_file, expected)) continue;
-            try writer.print(
-                "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
-                .{ bp.major, bp.minor, bp.name, ui_file },
-            );
+            defer alloc.free(expected_fwd);
+
+            const matches = if (builtin.os.tag == .windows) blk: {
+                const expected_back = try std.fmt.allocPrint(
+                    alloc,
+                    "\\{d}.{d}\\{s}.ui",
+                    .{ bp.major, bp.minor, bp.name },
+                );
+                defer alloc.free(expected_back);
+                // Also check mixed separators (common on Windows)
+                const expected_mixed = try std.fmt.allocPrint(
+                    alloc,
+                    "\\{d}.{d}/{s}.ui",
+                    .{ bp.major, bp.minor, bp.name },
+                );
+                defer alloc.free(expected_mixed);
+                break :blk std.mem.endsWith(u8, ui_file, expected_fwd) or
+                    std.mem.endsWith(u8, ui_file, expected_back) or
+                    std.mem.endsWith(u8, ui_file, expected_mixed);
+            } else std.mem.endsWith(u8, ui_file, expected_fwd);
+
+            if (!matches) continue;
+            // On Windows, skip xml-stripblanks preprocessing as glib-compile-resources
+            // has issues spawning xmllint as a subprocess
+            if (builtin.os.tag == .windows) {
+                try writer.print(
+                    "    <file compressed=\"true\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
+                    .{ bp.major, bp.minor, bp.name, ui_file },
+                );
+            } else {
+                try writer.print(
+                    "    <file compressed=\"true\" preprocess=\"xml-stripblanks\" alias=\"{d}.{d}/{s}.ui\">{s}</file>\n",
+                    .{ bp.major, bp.minor, bp.name, ui_file },
+                );
+            }
             break;
         } else {
             // The for loop never broke which means it didn't find

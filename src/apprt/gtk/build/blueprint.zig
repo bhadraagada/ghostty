@@ -6,6 +6,7 @@
 //! Example: blueprint.zig 1 5 output.ui input.blp
 
 const std = @import("std");
+const builtin = @import("builtin");
 
 pub const c = @cImport({
     @cInclude("adwaita.h");
@@ -73,15 +74,27 @@ pub fn main() !void {
         var stderr: std.ArrayListUnmanaged(u8) = .empty;
         defer stderr.deinit(alloc);
 
+        // On Windows, blueprint-compiler is a Python script without .exe extension,
+        // so we need to invoke it through the Python interpreter with the script path
+        const blueprint_args = if (builtin.os.tag == .windows)
+            &[_][]const u8{ "python3.exe", "C:/msys64/ucrt64/bin/blueprint-compiler", "--version" }
+        else
+            &[_][]const u8{ "blueprint-compiler", "--version" };
+
         var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "--version",
-            },
+            blueprint_args,
             alloc,
         );
         blueprint_compiler.stdout_behavior = .Pipe;
         blueprint_compiler.stderr_behavior = .Pipe;
+        // On Windows, ensure Python uses UTF-8 encoding
+        var env_map: ?std.process.EnvMap = null;
+        if (builtin.os.tag == .windows) {
+            env_map = try std.process.getEnvMap(alloc);
+            try env_map.?.put("PYTHONUTF8", "1");
+            blueprint_compiler.env_map = &env_map.?;
+        }
+        defer if (env_map) |*em| em.deinit();
         try blueprint_compiler.spawn();
         try blueprint_compiler.collectOutput(
             alloc,
@@ -127,18 +140,27 @@ pub fn main() !void {
         var stderr: std.ArrayListUnmanaged(u8) = .empty;
         defer stderr.deinit(alloc);
 
+        // On Windows, blueprint-compiler is a Python script without .exe extension,
+        // so we need to invoke it through the Python interpreter with the script path
+        const compile_args = if (builtin.os.tag == .windows)
+            &[_][]const u8{ "python3.exe", "C:/msys64/ucrt64/bin/blueprint-compiler", "compile", "--output", output, input }
+        else
+            &[_][]const u8{ "blueprint-compiler", "compile", "--output", output, input };
+
         var blueprint_compiler = std.process.Child.init(
-            &.{
-                "blueprint-compiler",
-                "compile",
-                "--output",
-                output,
-                input,
-            },
+            compile_args,
             alloc,
         );
         blueprint_compiler.stdout_behavior = .Pipe;
         blueprint_compiler.stderr_behavior = .Pipe;
+        // On Windows, ensure Python uses UTF-8 encoding
+        var compile_env_map: ?std.process.EnvMap = null;
+        if (builtin.os.tag == .windows) {
+            compile_env_map = try std.process.getEnvMap(alloc);
+            try compile_env_map.?.put("PYTHONUTF8", "1");
+            blueprint_compiler.env_map = &compile_env_map.?;
+        }
+        defer if (compile_env_map) |*em| em.deinit();
         try blueprint_compiler.spawn();
         try blueprint_compiler.collectOutput(
             alloc,

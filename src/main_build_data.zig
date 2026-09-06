@@ -7,6 +7,7 @@
 //! complete waste.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Allocator = std.mem.Allocator;
 const cli = @import("cli.zig");
 
@@ -33,8 +34,12 @@ pub fn main() !void {
     const action = action_ orelse return error.NoAction;
 
     // Our output always goes to stdout.
+    // Use streaming mode on Windows because stdout can't be truncated
     var buffer: [1024]u8 = undefined;
-    var stdout_writer = std.fs.File.stdout().writer(&buffer);
+    var stdout_writer = if (builtin.os.tag == .windows)
+        std.fs.File.stdout().writerStreaming(&buffer)
+    else
+        std.fs.File.stdout().writer(&buffer);
     const writer = &stdout_writer.interface;
     switch (action) {
         .bash => try writer.writeAll(@import("extra/bash.zig").completions),

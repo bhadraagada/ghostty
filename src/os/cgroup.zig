@@ -1,13 +1,19 @@
 const std = @import("std");
+const builtin = @import("builtin");
 const assert = @import("../quirks.zig").inlineAssert;
-const linux = std.os.linux;
-const posix = std.posix;
 const Allocator = std.mem.Allocator;
 
 const log = std.log.scoped(.@"linux-cgroup");
 
+// Cgroups are Linux-specific. On other platforms, provide stub implementations.
+const is_linux = builtin.os.tag == .linux;
+const linux = if (is_linux) std.os.linux else undefined;
+const posix = if (is_linux) std.posix else undefined;
+
 /// Returns the path to the cgroup for the given pid.
-pub fn current(alloc: Allocator, pid: std.os.linux.pid_t) !?[]const u8 {
+/// On non-Linux platforms, this always returns null.
+pub fn current(alloc: Allocator, pid: if (is_linux) std.os.linux.pid_t else i32) !?[]const u8 {
+    if (!is_linux) return null;
     var buf: [std.fs.max_path_bytes]u8 = undefined;
 
     // Read our cgroup by opening /proc/<pid>/cgroup and reading the first
@@ -33,11 +39,13 @@ pub fn current(alloc: Allocator, pid: std.os.linux.pid_t) !?[]const u8 {
 
 /// Create a new cgroup. This will not move any process into it unless move is
 /// set. If move is set, the given pid will be moved into the created cgroup.
+/// On non-Linux platforms, this is a no-op.
 pub fn create(
     cgroup: []const u8,
     child: []const u8,
-    move: ?std.os.linux.pid_t,
+    move: ?if (is_linux) std.os.linux.pid_t else i32,
 ) !void {
+    if (!is_linux) return;
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fmt.bufPrint(&buf, "/sys/fs/cgroup{s}/{s}", .{ cgroup, child });
     try std.fs.cwd().makePath(path);
@@ -62,7 +70,9 @@ pub fn create(
 /// Remove a cgroup. This will only succeed if the cgroup is empty
 /// (has no processes). The cgroup path should be relative to the
 /// cgroup root (e.g. "/user.slice/surfaces/abc123.scope").
+/// On non-Linux platforms, this is a no-op.
 pub fn remove(cgroup: []const u8) !void {
+    if (!is_linux) return;
     assert(cgroup.len > 0);
     assert(cgroup[0] == '/');
 
@@ -79,10 +89,12 @@ pub fn remove(cgroup: []const u8) !void {
 }
 
 /// Move the given PID into the given cgroup.
+/// On non-Linux platforms, this is a no-op.
 pub fn moveInto(
     cgroup: []const u8,
-    pid: std.os.linux.pid_t,
+    pid: if (is_linux) std.os.linux.pid_t else i32,
 ) !void {
+    if (!is_linux) return;
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fmt.bufPrint(&buf, "/sys/fs/cgroup{s}/cgroup.procs", .{cgroup});
     const file = try std.fs.cwd().openFile(path, .{ .mode = .write_only });
@@ -92,7 +104,9 @@ pub fn moveInto(
 
 /// Use clone3 to have the kernel create a new process with the correct cgroup
 /// rather than moving the process to the correct cgroup later.
-pub fn cloneInto(cgroup: []const u8) !posix.pid_t {
+/// On non-Linux platforms, this returns an error.
+pub fn cloneInto(cgroup: []const u8) !if (is_linux) std.posix.pid_t else i32 {
+    if (!is_linux) return error.UnsupportedPlatform;
     var buf: [std.fs.max_path_bytes]u8 = undefined;
     const path = try std.fmt.bufPrintZ(&buf, "/sys/fs/cgroup{s}", .{cgroup});
 
@@ -170,7 +184,9 @@ pub fn cloneInto(cgroup: []const u8) !posix.pid_t {
 /// controllers from the /sys/fs directory. This avoids some extra
 /// work since creating an iterator over this is easy and much cheaper
 /// than allocating a bunch of copies for an array.
+/// On non-Linux platforms, this returns an empty string.
 pub fn controllers(alloc: Allocator, cgroup: []const u8) ![]const u8 {
+    if (!is_linux) return try alloc.dupe(u8, "");
     assert(cgroup[0] == '/');
     var buf: [std.fs.max_path_bytes]u8 = undefined;
 
@@ -198,10 +214,12 @@ pub fn controllers(alloc: Allocator, cgroup: []const u8) ![]const u8 {
 
 /// Configure the set of controllers in the cgroup. The "v" should
 /// be in a valid format for "cgroup.subtree_control"
+/// On non-Linux platforms, this is a no-op.
 pub fn configureControllers(
     cgroup: []const u8,
     v: []const u8,
 ) !void {
+    if (!is_linux) return;
     assert(cgroup[0] == '/');
     var buf: [std.fs.max_path_bytes]u8 = undefined;
 
@@ -228,7 +246,9 @@ pub const Limit = union(enum) {
 
 /// Configure a limit for the given cgroup. Use the various
 /// fields in Limit to configure a specific type of limit.
+/// On non-Linux platforms, this is a no-op.
 pub fn configureLimit(cgroup: []const u8, limit: Limit) !void {
+    if (!is_linux) return;
     assert(cgroup[0] == '/');
 
     const filename, const size = switch (limit) {

@@ -364,11 +364,30 @@ pub fn add(
         } else |_| {}
     }
 
+    // On Windows with MSYS2/MinGW, we need to add the ucrt64 bin directory
+    // for DLL resolution. The lib directory is typically added via pkg-config
+    // but we also add the bin directory explicitly for runtime DLL discovery.
+    if (step.rootModuleTarget().os.tag == .windows) {
+        // Common MSYS2 UCRT64 paths
+        const msys2_paths = [_][]const u8{
+            "C:/msys64/ucrt64/bin",
+            "C:/msys64/ucrt64/lib",
+        };
+        for (msys2_paths) |msys2_path| {
+            if (std.fs.accessAbsolute(msys2_path, .{})) {
+                step.addLibraryPath(.{ .cwd_relative = msys2_path });
+            } else |_| {}
+        }
+    }
+
     // C files
     step.linkLibC();
     step.addIncludePath(b.path("src/stb"));
     step.addCSourceFiles(.{ .files = &.{"src/stb/stb.c"} });
-    if (step.rootModuleTarget().os.tag == .linux) {
+    // Add GTK include path for platforms using GTK apprt
+    if (step.rootModuleTarget().os.tag == .linux or
+        step.rootModuleTarget().os.tag == .windows)
+    {
         step.addIncludePath(b.path("src/apprt/gtk"));
     }
 
@@ -852,7 +871,6 @@ pub fn gtkNgDistResources(
     for (gresource.file_inputs) |path| {
         generate_c.addFileInput(b.path(path));
     }
-
     const generate_h = b.addSystemCommand(&.{
         "glib-compile-resources",
         "--c-name",

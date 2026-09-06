@@ -233,6 +233,10 @@ pub fn focusGained(
 ) !void {
     _ = self;
 
+    // Termios timer is not supported on Windows - Windows uses ConPTY
+    // which doesn't have termios mode tracking.
+    if (comptime builtin.os.tag == .windows) return;
+
     assert(td.backend == .exec);
     const execdata = &td.backend.exec;
 

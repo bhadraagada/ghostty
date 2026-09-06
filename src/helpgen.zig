@@ -3,6 +3,7 @@
 //! help, docs, website, etc.
 
 const std = @import("std");
+const builtin = @import("builtin");
 const Config = @import("config/Config.zig");
 const Action = @import("cli/ghostty.zig").Action;
 const KeybindAction = @import("input/Binding.zig").Action;
@@ -12,7 +13,11 @@ pub fn main() !void {
     const alloc = gpa.allocator();
 
     var buf: [4096]u8 = undefined;
-    var stdout = std.fs.File.stdout().writer(&buf);
+    // Use streaming mode on Windows because stdout can't be truncated
+    var stdout = if (builtin.os.tag == .windows)
+        std.fs.File.stdout().writerStreaming(&buf)
+    else
+        std.fs.File.stdout().writer(&buf);
     const writer = &stdout.interface;
     try writer.writeAll(
         \\// THIS FILE IS AUTO GENERATED
